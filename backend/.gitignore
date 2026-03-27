@@ -27,3 +27,9 @@ dist-ssr
 *.env
 venv/
 __pycache__/
+# Logs
+error_log.txt
+err.txt
+err2.txt
+err3.txt
+*.log

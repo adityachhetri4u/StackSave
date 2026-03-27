@@ -22,3 +22,20 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Environment
+.env
+*.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+error_log.txt
+err.txt
+err2.txt
+err3.txt
+backend/error_log.txt
+backend/err.txt
+backend/err2.txt
+backend/err3.txt
