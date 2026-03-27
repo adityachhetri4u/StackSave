@@ -1,8 +1,10 @@
 import { useState, useEffect, useMemo } from 'react';
 import api from '../lib/api';
 import TextType from '../components/TextType';
+import { useAuth } from '../contexts/AuthContext';
 
 function CardWallet() {
+  const { user, loading: authLoading } = useAuth();
   const [cards, setCards] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -13,15 +15,37 @@ function CardWallet() {
   const [newCardType, setNewCardType] = useState('Credit Card');
 
   useEffect(() => {
+    if (authLoading) return;
+    
+    if (!user) {
+      setError('Please log in to manage your cards');
+      setLoading(false);
+      console.log('[CardWallet] User not logged in');
+      return;
+    }
+
+    console.log('[CardWallet] User logged in, fetching cards...', { user_id: user.id, email: user.email });
     fetchCards();
-  }, []);
+  }, [user, authLoading]);
 
   const fetchCards = async () => {
     try {
+      setLoading(true);
+      setError('');
+      console.log('[fetchCards] Starting fetch...');
       const res = await api.get('/cards');
-      setCards(res.data);
+      console.log('[fetchCards] Success:', res.data);
+      setCards(res.data || []);
     } catch (err) {
-      setError(err.message || 'Failed to fetch cards');
+      console.error('[fetchCards] Error:', {
+        status: err.response?.status,
+        data: err.response?.data,
+        message: err.message,
+        errorMsg: err.response?.data?.detail?.error?.message || err.message || 'Failed to fetch cards'
+      });
+      const errorMsg = err.response?.data?.detail?.error?.message || err.message || 'Failed to fetch cards';
+      setError(errorMsg);
+      setCards([]);
     } finally {
       setLoading(false);
     }
@@ -41,22 +65,29 @@ function CardWallet() {
       };
 
       const res = await api.post('/cards', cardPayload);
-      setCards([...cards, res.data]);
+      setCards([res.data, ...cards]);
       setNewCardBank('');
       setSuccess('Card successfully added to vault.');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to add card');
+      const errorMsg = err.response?.data?.detail?.error?.message || err.message || 'Failed to add card';
+      setError(errorMsg);
+      console.error('Add card error:', err.response?.data || err.message);
     }
   };
 
   const removeCard = async (id, e) => {
-    e?.stopPropagation(); // Prevent flip trigger
+    e?.stopPropagation();
     try {
+      setError('');
       await api.delete(`/cards/${id}`);
       setCards(cards.filter(c => c.id !== id));
+      setSuccess('Card removed from vault.');
+      setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.message || 'Failed to delete card');
+      const errorMsg = err.response?.data?.detail?.error?.message || err.message || 'Failed to delete card';
+      setError(errorMsg);
+      console.error('Delete card error:', err.response?.data || err.message);
     }
   };
 
@@ -103,27 +134,52 @@ function CardWallet() {
           </div>
         )}
 
-        <form onSubmit={addCard} className="relative z-10 flex gap-2">
-          <input
-            type="text"
-            value={newCardBank}
-            onChange={(event) => setNewCardBank(event.target.value)}
-            placeholder="Add bank card (e.g. HDFC Credit)"
-            className="tape-input w-full"
-            disabled={loading}
-          />
-          <button
-            type="submit"
-            disabled={loading || !newCardBank.trim()}
-            className="machine-button px-6"
-          >
-            Add
-          </button>
-        </form>
+        {authLoading ? (
+          <div className="relative z-10 p-4 text-center text-slate-300">
+            <p className="text-xs uppercase tracking-widest">Authenticating...</p>
+          </div>
+        ) : !user ? (
+          <div className="relative z-10 p-4 rounded-md bg-slate-800/40 border border-slate-700 text-center">
+            <p className="text-xs text-slate-400 uppercase tracking-widest">Please log in to manage your cards</p>
+          </div>
+        ) : (
+          <>
+            <form onSubmit={addCard} className="relative z-10 flex gap-2">
+              <input
+                type="text"
+                value={newCardBank}
+                onChange={(event) => setNewCardBank(event.target.value)}
+                placeholder="Add bank card (e.g. HDFC Credit)"
+                className="tape-input w-full"
+                disabled={loading}
+              />
+              <button
+                type="submit"
+                disabled={loading || !newCardBank.trim()}
+                className="machine-button px-6"
+              >
+                {loading ? 'Adding...' : 'Add'}
+              </button>
+            </form>
+          </>
+        )}
 
         <div className="relative z-10 screen-box mt-4">
           <div className="screen-box-content vault-cards-grid">
-            {cards.map((card, index) => {
+            {loading && user ? (
+              <div className="col-span-full p-8 text-center">
+                <p className="text-xs text-slate-400 uppercase tracking-widest">Loading cards...</p>
+              </div>
+            ) : !user ? (
+              <div className="col-span-full p-8 text-center">
+                <p className="text-xs text-slate-400 uppercase tracking-widest">Sign in to view saved cards</p>
+              </div>
+            ) : cards.length === 0 ? (
+              <div className="col-span-full p-8 text-center">
+                <p className="text-xs text-slate-400 uppercase tracking-widest">No cards saved. Add one above to get started.</p>
+              </div>
+            ) : (
+              cards.map((card, index) => {
               const isFlipped = Boolean(flippedCards[card.id]);
               const bankName = card.bank_name || 'Bank';
               const last4 = card.id ? String(card.id).slice(-4).padStart(4, "0") : "0000";
@@ -198,7 +254,8 @@ function CardWallet() {
                   </div>
                 </div>
               );
-            })}
+              })
+            )}
             
             {!loading && cards.length === 0 && (
               <div className="col-span-full rounded-xl border border-dashed border-slate-800 p-12 text-center">

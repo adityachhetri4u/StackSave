@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from typing import List
 from uuid import UUID
 
@@ -6,9 +6,21 @@ from app.dependencies import get_current_user
 from app.database import get_db
 from app.models.card import CardCreate, CardResponse
 from app.exceptions import AppException
+from app.config import get_settings
 
 router = APIRouter()
 
+# Diagnostic endpoint to debug auth issues
+@router.get("/cards/debug/status")
+async def debug_status(authorization: str = Header(None)):
+    """Debug endpoint to check auth status"""
+    settings = get_settings()
+    return {
+        "jwt_secret_prefix": settings.supabase_jwt_secret[:30] + "...",
+        "has_auth_header": bool(authorization),
+        "auth_header_preview": (authorization[:50] + "...") if authorization else "NONE",
+        "backend_url": settings.supabase_url,
+    }
 
 @router.get("/cards", response_model=List[CardResponse])
 async def list_cards(
