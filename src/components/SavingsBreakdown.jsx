@@ -1,9 +1,20 @@
+import TextType from "./TextType"
+
 function SavingsBreakdown({ product, bestPaymentOption }) {
   return (
     <section className="screen-section relative overflow-hidden p-5">
       <div className="relative z-10 flex items-center justify-between mb-4">
         <h3 className="screen-title text-lg">
-          Stacking Breakdown
+          <TextType
+            as="span"
+            text="Stacking Breakdown"
+            typingSpeed={32}
+            pauseDuration={1400}
+            loop={false}
+            showCursor
+            cursorCharacter="_"
+            cursorBlinkDuration={0.5}
+          />
         </h3>
         <span className="machine-status-light">
           <span className="status-light-dot active" />

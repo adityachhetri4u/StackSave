@@ -3,6 +3,7 @@ import BetterDeals from "../components/BetterDeals"
 import PaymentOptionCard from "../components/PaymentOptionCard"
 import ProductCard from "../components/ProductCard"
 import SavingsBreakdown from "../components/SavingsBreakdown"
+import TextType from "../components/TextType"
 import UrlInput from "../components/UrlInput"
 
 function Home({ lastAnalysis, onAnalyze, isLoading }) {
@@ -38,27 +39,55 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
   return (
     <div className="mx-auto max-w-[1120px] space-y-6">
       <section className="machine-screen p-4 sm:p-6">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(34,197,94,0.12),transparent_45%)]" />
-        <div className="absolute inset-x-0 top-20 h-px bg-emerald-500/40" />
-        <div className="absolute inset-0 opacity-20 [background:repeating-linear-gradient(0deg,transparent,transparent_23px,rgba(16,185,129,0.09)_24px)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_10%,rgba(100,116,139,0.12),transparent_45%)]" />
+        <div className="absolute inset-x-0 top-20 h-px bg-slate-500/35" />
+        <div className="absolute inset-0 opacity-20 [background:repeating-linear-gradient(0deg,transparent,transparent_23px,rgba(100,116,139,0.08)_24px)]" />
 
         <div className="relative space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
-              <p className="text-xs uppercase tracking-[0.22em] text-emerald-400">System Control</p>
-              <h2 className="font-display text-3xl font-semibold uppercase tracking-wide text-slate-100">
-                Transaction Node
-              </h2>
+              <TextType
+                as="p"
+                text="System Control"
+                typingSpeed={38}
+                pauseDuration={1500}
+                loop={false}
+                showCursor
+                cursorCharacter="_"
+                cursorBlinkDuration={0.55}
+                className="text-xs uppercase tracking-[0.22em] text-slate-400"
+              />
+              <TextType
+                as="h2"
+                text="Transaction Node"
+                typingSpeed={44}
+                initialDelay={150}
+                pauseDuration={1600}
+                loop={false}
+                showCursor
+                cursorCharacter="_"
+                cursorBlinkDuration={0.55}
+                className="font-display text-3xl font-semibold uppercase tracking-wide text-slate-100 screen-blink"
+              />
             </div>
-            <p className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-emerald-300">
-              Secure scan active
+            <p className="rounded-full border border-slate-500/40 bg-slate-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.18em] text-slate-300">
+              <TextType
+                as="span"
+                text="Secure scan active"
+                typingSpeed={28}
+                pauseDuration={1400}
+                loop={false}
+                showCursor
+                cursorCharacter="_"
+                cursorBlinkDuration={0.5}
+              />
             </p>
           </div>
 
           <UrlInput onAnalyze={onAnalyze} isLoading={isLoading} />
 
           {!lastAnalysis && (
-            <section className="machine-panel rounded-2xl border border-dashed border-emerald-500/25 p-8 text-center">
+            <section className="machine-panel rounded-2xl border border-dashed border-slate-500/30 p-8 text-center">
               <h3 className="font-display text-xl font-semibold uppercase tracking-wide text-slate-100">
                 Insert URL and Run Analysis
               </h3>
@@ -83,7 +112,7 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
                   <PaymentOptionCard option={lastAnalysis.bestPaymentOption} isRecommended />
                   <button
                     type="button"
-                    className="w-full rounded-lg bg-emerald-500 py-3 text-sm font-bold uppercase tracking-[0.12em] text-slate-950 transition hover:bg-emerald-400"
+                    className="w-full rounded-lg bg-slate-600 py-3 text-sm font-bold uppercase tracking-[0.12em] text-slate-100 transition hover:bg-slate-500"
                   >
                     Apply and Pay
                   </button>
@@ -101,7 +130,7 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
                     <h3 className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">
                       Payment Modules
                     </h3>
-                    <span className="text-xs text-emerald-300">
+                    <span className="text-xs text-slate-300">
                       {sortedPaymentOptions.length > 0 ? clampedPaymentIndex + 1 : 0}/{sortedPaymentOptions.length || 0}
                     </span>
                   </div>
@@ -132,7 +161,7 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
                         )
                       }
                       disabled={sortedPaymentOptions.length <= 1}
-                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-slate-500/60 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Prev
                     </button>
@@ -146,7 +175,7 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
                           aria-label={`Go to payment card ${index + 1}`}
                           className={`h-1.5 rounded-full transition-all ${
                             index === clampedPaymentIndex
-                              ? "w-7 bg-emerald-400"
+                              ? "w-7 bg-slate-300"
                               : "w-2 bg-slate-600"
                           }`}
                         />
@@ -161,7 +190,7 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
                         )
                       }
                       disabled={sortedPaymentOptions.length <= 1}
-                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-emerald-500/50 disabled:cursor-not-allowed disabled:opacity-40"
+                      className="rounded-md border border-slate-700 bg-slate-900 px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-slate-300 transition hover:border-slate-500/60 disabled:cursor-not-allowed disabled:opacity-40"
                     >
                       Next
                     </button>
@@ -176,7 +205,7 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
                 <p>
                   Security: End-to-end encrypted
                 </p>
-                <p className="text-emerald-400">Status: Ready to stack</p>
+                <p className="text-slate-300">Status: Ready to stack</p>
               </div>
             </>
           )}

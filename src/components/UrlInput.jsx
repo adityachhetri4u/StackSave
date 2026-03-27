@@ -22,7 +22,7 @@ function UrlInput({ onAnalyze, isLoading }) {
     <form onSubmit={handleSubmit} className="space-y-2">
       <div className="flex items-center justify-between">
         <label
-          className="block text-xs font-semibold uppercase tracking-[0.25em] text-emerald-400"
+          className="block text-xs font-semibold uppercase tracking-[0.25em] text-slate-300"
           htmlFor="url-input"
         >
           Insert Tape to Stack

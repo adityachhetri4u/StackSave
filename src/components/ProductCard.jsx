@@ -1,4 +1,5 @@
 import { useMemo } from "react"
+import TextType from "./TextType"
 
 function ProductCard({ product, bestPaymentOption }) {
   const deadPixels = useMemo(() => {
@@ -38,9 +39,31 @@ function ProductCard({ product, bestPaymentOption }) {
             </span>
           </div>
           <h2 className="screen-title text-xl">
-            {product.name}
+            <TextType
+              as="span"
+              text={product.name}
+              typingSpeed={34}
+              pauseDuration={1400}
+              loop={false}
+              showCursor
+              cursorCharacter="_"
+              cursorBlinkDuration={0.5}
+              className="screen-blink"
+            />
           </h2>
-          <p className="screen-label text-[11px] mt-1">Source: {product.platform}</p>
+          <p className="screen-label text-[11px] mt-1">
+            <TextType
+              as="span"
+              text={`Source: ${product.platform}`}
+              typingSpeed={22}
+              initialDelay={130}
+              pauseDuration={1200}
+              loop={false}
+              showCursor
+              cursorCharacter="_"
+              cursorBlinkDuration={0.45}
+            />
+          </p>
         </div>
         <span className="screen-value accent text-xs font-semibold px-3 py-1 border border-yellow-600/20 rounded-full bg-yellow-600/5">
           {product.platform}
