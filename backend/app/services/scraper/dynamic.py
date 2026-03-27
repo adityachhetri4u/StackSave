@@ -2,6 +2,11 @@ import re
 from typing import List
 from playwright.sync_api import sync_playwright
 from app.models.scraper import ScrapedOffer, ScrapedCoupon, ScraperResponse
+from app.services.scraper.external_coupons import (
+    scrape_external_coupons,
+    filter_coupons_for_product,
+    pick_best_coupon,
+)
 
 def parse_generic_offer_line(text: str) -> ScrapedOffer:
     text_upper = text.upper()
@@ -289,7 +294,36 @@ def scrape_product_offers(url: str) -> ScraperResponse:
             
         except Exception as e:
             print(f"Error scraping coupons: {e}")
-            
+
+        # ── External coupon fallback (CouponDunia + GrabOn) ──────────
+        # If the product page didn't yield any coupons, scrape external
+        # aggregator sites for relevant coupons.
+        if not coupons:
+            try:
+                print(f"[Scraper] No product-page coupons found. Trying external sources...")
+                external = scrape_external_coupons(url, product_name, price)
+                if external:
+                    coupons = external
+                    print(f"[Scraper] Found {len(coupons)} external coupons.")
+                else:
+                    print(f"[Scraper] No external coupons found either.")
+            except Exception as ex:
+                print(f"[Scraper] External coupon scrape failed: {ex}")
+
+        # ── Filter all coupons for product relevance ─────────────────
+        # Apply category/price/expiry filtering to whatever coupons we have
+        if coupons and price > 0:
+            coupons = filter_coupons_for_product(coupons, product_name, price)
+            print(f"[Scraper] After filtering: {len(coupons)} coupons")
+
+        # ── Select the single best coupon ────────────────────────────
+        best_coupon = None
+        if coupons and price > 0:
+            best_coupon = pick_best_coupon(coupons, price)
+            if best_coupon:
+                print(f"[Scraper] Best coupon: {best_coupon.code} "
+                      f"(saves ~₹{best_coupon.discount_value})")
+
         browser.close()
         
         # Fallback Graceful Degradation (If bot protection completely wiped the DOM text)
@@ -317,4 +351,10 @@ def scrape_product_offers(url: str) -> ScraperResponse:
                 )
             )
 
-        return ScraperResponse(product_price=price, product_name=product_name, offers=offers, coupons=coupons)
+        return ScraperResponse(
+            product_price=price,
+            product_name=product_name,
+            offers=offers,
+            coupons=coupons,
+            best_coupon=best_coupon,
+        )

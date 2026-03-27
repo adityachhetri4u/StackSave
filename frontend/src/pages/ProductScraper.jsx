@@ -12,7 +12,9 @@ function ProductScraper() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [coupons, setCoupons] = useState([])
+  const [bestCoupon, setBestCoupon] = useState(null)
   const [appliedCoupon, setAppliedCoupon] = useState(null)
+  const [showAllCoupons, setShowAllCoupons] = useState(false)
 
   const sortedPaymentOptions = useMemo(() => {
     if (!lastAnalysis) return [];
@@ -60,12 +62,18 @@ function ProductScraper() {
       
       const price = data.product_price || 0;
       
-      // Store coupons from backend
-      setCoupons(data.coupons || []);
+      // Store coupons from backend (already filtered & ranked)
+      const rawCoupons = data.coupons || [];
+      const serverBestCoupon = data.best_coupon || null;
+      setCoupons(rawCoupons);
+      setBestCoupon(serverBestCoupon);
       setAppliedCoupon(null);
+      setShowAllCoupons(false);
+      
+      const rawOffers = data.offers || [];
       
       // Transform our backend ScrapedOffer array into the paymentOptions array expected by the UI.
-      const paymentOptions = data.offers.map((offer, index) => {
+      const paymentOptions = rawOffers.map((offer, index) => {
         let discount = 0;
         if (offer.discount_type === 'FLAT') {
           discount = offer.discount_value;
@@ -113,7 +121,7 @@ function ProductScraper() {
         bestPaymentOption: best,
         betterDeals: [],
         _rawPrice: price,
-        _rawOffers: data.offers
+        _rawOffers: rawOffers
       };
       
       setLastAnalysis(analysis);
@@ -308,111 +316,206 @@ function ProductScraper() {
         </div>
       </section>
 
-      {/* Coupons Section */}
-      {lastAnalysis && coupons.length > 0 && (
-        <section className="rounded-2xl border border-slate-700 bg-slate-950/80 p-5 shadow-2xl">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div>
-              <h3 className="font-display text-lg font-semibold uppercase tracking-[0.14em] text-slate-200">
-                Available Coupons
-              </h3>
-              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-mono">
-                Extracted from sequence scan
-              </p>
-            </div>
-            <span className="rounded-full border border-slate-500/40 bg-slate-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
-              {coupons.length} detected
-            </span>
-          </div>
+      {/* Best Coupon Section */}
+      {lastAnalysis && bestCoupon && (() => {
+        const basePrice = lastAnalysis._rawPrice || lastAnalysis.product.originalPrice;
+        const isApplied = appliedCoupon?.code === bestCoupon.code;
+        // Calculate effective savings
+        let effectiveSavings = 0;
+        if (bestCoupon.discount_type === 'FLAT') {
+          effectiveSavings = bestCoupon.discount_value;
+        } else {
+          effectiveSavings = basePrice * (bestCoupon.discount_value / 100);
+        }
+        if (bestCoupon.max_discount > 0 && effectiveSavings > bestCoupon.max_discount) {
+          effectiveSavings = bestCoupon.max_discount;
+        }
+        effectiveSavings = Math.min(effectiveSavings, basePrice);
 
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {coupons.map((coupon, idx) => {
-              const isApplied = appliedCoupon?.code === coupon.code;
-              return (
-                <div
-                  key={idx}
-                  className={`rounded-xl border p-4 transition-all cursor-pointer ${
-                    isApplied
-                      ? 'border-slate-300 bg-slate-500/10 shadow-[0_0_20px_rgba(148,163,184,0.15)]'
-                      : 'border-slate-700 bg-slate-900 hover:border-slate-500'
-                  }`}
-                  onClick={() => {
-                    if (isApplied) {
-                      setAppliedCoupon(null);
-                      setLastAnalysis(prev => ({
-                        ...prev,
-                        product: { ...prev.product, couponCode: 'None', couponAmount: 0 }
-                      }));
-                    } else {
-                      setAppliedCoupon(coupon);
-                      let couponDiscount = 0;
-                      const basePrice = lastAnalysis._rawPrice || lastAnalysis.product.originalPrice;
-                      if (coupon.discount_type === 'FLAT') {
-                        couponDiscount = coupon.discount_value;
-                      } else {
-                        couponDiscount = basePrice * (coupon.discount_value / 100);
-                      }
-                      if (coupon.max_discount > 0 && couponDiscount > coupon.max_discount) {
-                        couponDiscount = coupon.max_discount;
-                      }
-                      setLastAnalysis(prev => ({
-                        ...prev,
-                        product: {
-                          ...prev.product,
-                          couponCode: coupon.code,
-                          couponAmount: couponDiscount
-                        }
-                      }));
-                    }
-                  }}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-mono text-sm font-bold text-slate-200 tracking-wider">
-                      {coupon.code}
-                    </span>
-                    {isApplied ? (
-                      <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-950">
-                        Applied ✓
-                      </span>
-                    ) : (
-                      <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
-                        Apply
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400 line-clamp-2 mb-3 leading-relaxed">{coupon.description}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
-                      {coupon.discount_type === 'FLAT' ? `₹${coupon.discount_value} OFF` : `${coupon.discount_value}% OFF`}
-                    </span>
-                    {coupon.min_order_value > 0 && (
-                      <span className="text-[9px] text-slate-500 font-mono">MIN ₹{coupon.min_order_value}</span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          {appliedCoupon && (
-            <div className="mt-4 flex items-center justify-between rounded-xl border border-slate-500/30 bg-slate-500/5 p-4">
+        return (
+          <section className="rounded-2xl border border-slate-700 bg-slate-950/80 p-5 shadow-2xl">
+            <div className="flex items-center justify-between gap-3 mb-4">
               <div>
-                <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">Coupon Validated</p>
-                <p className="font-mono text-lg font-bold text-slate-200">{appliedCoupon.code}</p>
+                <h3 className="font-display text-lg font-semibold uppercase tracking-[0.14em] text-slate-200">
+                  Best Coupon Match
+                </h3>
+                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-mono">
+                  Filtered by product category, price eligibility &amp; validity
+                </p>
               </div>
-              <div className="text-right">
-                <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500">Node Savings</p>
-                <p className="text-xl font-bold text-slate-200">₹{(lastAnalysis.product.couponAmount || 0).toLocaleString()}</p>
+              <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">
+                ★ Top Pick
+              </span>
+            </div>
+
+            {/* Best coupon — prominent card */}
+            <div
+              className={`rounded-xl border-2 p-5 transition-all cursor-pointer ${
+                isApplied
+                  ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_30px_rgba(52,211,153,0.15)]'
+                  : 'border-slate-600 bg-gradient-to-br from-slate-900 to-slate-800 hover:border-emerald-500/60'
+              }`}
+              onClick={() => {
+                if (isApplied) {
+                  setAppliedCoupon(null);
+                  setLastAnalysis(prev => ({
+                    ...prev,
+                    product: { ...prev.product, couponCode: 'None', couponAmount: 0 }
+                  }));
+                } else {
+                  setAppliedCoupon(bestCoupon);
+                  setLastAnalysis(prev => ({
+                    ...prev,
+                    product: {
+                      ...prev.product,
+                      couponCode: bestCoupon.code,
+                      couponAmount: effectiveSavings
+                    }
+                  }));
+                }
+              }}
+            >
+              <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center gap-3">
+                  <span className="font-mono text-lg font-bold text-slate-100 tracking-wider">
+                    {bestCoupon.code}
+                  </span>
+                  {bestCoupon.source && bestCoupon.source !== 'product_page' && (
+                    <span className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
+                      bestCoupon.source === 'coupondunia'
+                        ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/50'
+                        : bestCoupon.source === 'grabon'
+                          ? 'bg-amber-900/60 text-amber-300 border border-amber-700/50'
+                          : 'bg-slate-800 text-slate-400 border border-slate-700'
+                    }`}>
+                      {bestCoupon.source === 'coupondunia' ? 'CouponDunia' : bestCoupon.source === 'grabon' ? 'GrabOn' : bestCoupon.source}
+                    </span>
+                  )}
+                </div>
+                {isApplied ? (
+                  <span className="rounded-full bg-emerald-400 px-3 py-1 text-[10px] font-bold uppercase text-slate-950">
+                    Applied ✓
+                  </span>
+                ) : (
+                  <span className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase text-emerald-300 hover:bg-emerald-500/20 transition">
+                    Apply Coupon
+                  </span>
+                )}
+              </div>
+
+              <p className="text-sm text-slate-400 mb-4 leading-relaxed">{bestCoupon.description}</p>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-4">
+                  <span className="text-sm font-bold text-emerald-300 uppercase tracking-wider">
+                    {bestCoupon.discount_type === 'FLAT' ? `₹${bestCoupon.discount_value} OFF` : `${bestCoupon.discount_value}% OFF`}
+                  </span>
+                  {bestCoupon.min_order_value > 0 && (
+                    <span className="text-[10px] text-slate-500 font-mono">MIN ₹{bestCoupon.min_order_value.toLocaleString()}</span>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-[9px] uppercase tracking-[0.15em] text-slate-500">You Save</p>
+                  <p className="text-lg font-bold text-emerald-300">₹{Math.round(effectiveSavings).toLocaleString()}</p>
+                </div>
               </div>
             </div>
-          )}
-        </section>
-      )}
 
-      {lastAnalysis && coupons.length === 0 && (
+            {/* Applied coupon confirmation */}
+            {isApplied && (
+              <div className="mt-4 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-400">Coupon Active</p>
+                  <p className="font-mono text-lg font-bold text-slate-200">{appliedCoupon.code}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500">Savings Applied</p>
+                  <p className="text-xl font-bold text-emerald-300">₹{Math.round(lastAnalysis.product.couponAmount || 0).toLocaleString()}</p>
+                </div>
+              </div>
+            )}
+
+            {/* Other coupons toggle */}
+            {coupons.length > 1 && (
+              <div className="mt-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAllCoupons(prev => !prev)}
+                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 transition hover:border-slate-500 hover:text-slate-300"
+                >
+                  {showAllCoupons ? 'Hide Other Coupons' : `View ${coupons.length - 1} Other Filtered Coupon${coupons.length - 1 > 1 ? 's' : ''}`}
+                </button>
+
+                {showAllCoupons && (
+                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                    {coupons.filter(c => c.code !== bestCoupon.code).map((coupon, idx) => {
+                      const isOtherApplied = appliedCoupon?.code === coupon.code;
+                      return (
+                        <div
+                          key={idx}
+                          className={`rounded-lg border p-3 transition-all cursor-pointer text-sm ${
+                            isOtherApplied
+                              ? 'border-slate-300 bg-slate-500/10'
+                              : 'border-slate-800 bg-slate-900/50 hover:border-slate-600'
+                          }`}
+                          onClick={() => {
+                            if (isOtherApplied) {
+                              setAppliedCoupon(null);
+                              setLastAnalysis(prev => ({
+                                ...prev,
+                                product: { ...prev.product, couponCode: 'None', couponAmount: 0 }
+                              }));
+                            } else {
+                              let disc = 0;
+                              if (coupon.discount_type === 'FLAT') disc = coupon.discount_value;
+                              else disc = basePrice * (coupon.discount_value / 100);
+                              if (coupon.max_discount > 0 && disc > coupon.max_discount) disc = coupon.max_discount;
+                              setAppliedCoupon(coupon);
+                              setLastAnalysis(prev => ({
+                                ...prev,
+                                product: { ...prev.product, couponCode: coupon.code, couponAmount: disc }
+                              }));
+                            }
+                          }}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="font-mono text-xs font-bold text-slate-300 tracking-wider">{coupon.code}</span>
+                            <div className="flex items-center gap-1.5">
+                              {coupon.source && coupon.source !== 'product_page' && (
+                                <span className={`rounded px-1 py-0.5 text-[7px] font-bold uppercase ${
+                                  coupon.source === 'coupondunia'
+                                    ? 'bg-emerald-900/60 text-emerald-400'
+                                    : 'bg-amber-900/60 text-amber-400'
+                                }`}>
+                                  {coupon.source === 'coupondunia' ? 'CD' : 'GO'}
+                                </span>
+                              )}
+                              {isOtherApplied ? (
+                                <span className="text-[8px] font-bold text-slate-100">✓</span>
+                              ) : (
+                                <span className="text-[8px] text-slate-600">Apply</span>
+                              )}
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-slate-500 line-clamp-1">{coupon.description}</p>
+                          <p className="text-[10px] font-bold text-slate-400 mt-1">
+                            {coupon.discount_type === 'FLAT' ? `₹${coupon.discount_value} OFF` : `${coupon.discount_value}% OFF`}
+                          </p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </section>
+        );
+      })()}
+
+      {lastAnalysis && !bestCoupon && coupons.length === 0 && (
         <section className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/80 p-5 text-center">
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-mono">
-            No external coupons detected in product sequence
+            No matching coupons found for this product
           </p>
         </section>
       )}

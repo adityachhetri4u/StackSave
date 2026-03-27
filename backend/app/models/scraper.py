@@ -27,3 +27,4 @@ class ScraperResponse(BaseModel):
     product_name: str = "Unknown Product"
     offers: List[ScrapedOffer]
     coupons: List[ScrapedCoupon] = []
+    best_coupon: Optional[ScrapedCoupon] = None
