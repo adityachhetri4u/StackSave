@@ -8,11 +8,35 @@ const api = axios.create({
   },
 });
 
+// Store the current session for use in interceptor
+let currentSession = null;
+
+// Update session whenever Supabase auth changes
+supabase.auth.onAuthStateChange((event, session) => {
+  currentSession = session;
+  console.log('[API] Auth state changed:', { event, hasToken: !!session?.access_token });
+});
+
+// Get initial session
+supabase.auth.getSession().then(({ data: { session } }) => {
+  currentSession = session;
+  console.log('[API] Initial session loaded:', { hasToken: !!session?.access_token });
+});
+
 // Attach JWT token to every request
 api.interceptors.request.use(async (config) => {
-  const { data: { session } } = await supabase.auth.getSession();
-  if (session?.access_token) {
-    config.headers.Authorization = `Bearer ${session.access_token}`;
+  console.log('[API] Request to:', config.url);
+  
+  // Use the stored session
+  if (currentSession?.access_token) {
+    console.log('[API] Attaching token:', currentSession.access_token.substring(0, 30) + '...');
+    config.headers.Authorization = `Bearer ${currentSession.access_token}`;
+  } else {
+    console.warn('[API] No token available!', { 
+      hasSession: !!currentSession,
+      hasToken: !!currentSession?.access_token,
+      sessionUser: currentSession?.user?.email || 'NO USER'
+    });
   }
   return config;
 });
