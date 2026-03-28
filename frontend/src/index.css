@@ -5,6 +5,11 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    width: 100%;
+    height: 100%;
+  }
+
   :root {
     color: #f1f5f9;
     background-color: #030405;
@@ -20,7 +25,10 @@
   }
 
   body {
+    width: 100%;
+    height: 100%;
     margin: 0;
+    padding: 0;
     min-width: 320px;
     background:
       radial-gradient(circle at 15% 8%, rgba(70, 78, 92, 0.16) 0%, transparent 35%),
@@ -29,6 +37,7 @@
   }
 
   #root {
+    width: 100%;
     min-height: 100vh;
   }
 }
@@ -223,6 +232,19 @@
 
   50% {
     opacity: 0.8;
+  }
+}
+
+@keyframes analysisBar {
+  0%,
+  100% {
+    transform: scaleY(0.35);
+    opacity: 0.45;
+  }
+
+  50% {
+    transform: scaleY(1.35);
+    opacity: 1;
   }
 }
 

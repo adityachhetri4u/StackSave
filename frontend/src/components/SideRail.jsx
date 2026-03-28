@@ -4,7 +4,6 @@ import { LogOut, Home } from 'lucide-react';
 const railActions = [
   { name: "Terminal", path: "/product-scraper", label: "T" },
   { name: "Vault", path: "/cards", label: "V" },
-  { name: "StackMode", path: "/recommend", label: "S" },
   { name: "History", path: "/history", label: "H" },
 ]
 

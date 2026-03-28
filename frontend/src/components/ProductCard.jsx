@@ -1,5 +1,6 @@
 import { useMemo } from "react"
 import TextType from "./TextType"
+import CountUp from "./CountUp"
 
 function ProductCard({ product, bestPaymentOption }) {
   const productId = typeof product?.id === 'number' ? product.id : (product?.name || '').length
@@ -119,7 +120,7 @@ function ProductCard({ product, bestPaymentOption }) {
                 Rs {(bestPaymentOption.effectivePrice || 0).toLocaleString()}
               </p>
               <p className="screen-value accent text-xs mt-2 opacity-75">
-                Total saved: Rs {(bestPaymentOption.totalSavings || 0).toLocaleString()}
+                Total saved: Rs <CountUp to={bestPaymentOption.totalSavings || 0} from={0} duration={1.5} className="font-semibold" />
               </p>
             </div>
           )}

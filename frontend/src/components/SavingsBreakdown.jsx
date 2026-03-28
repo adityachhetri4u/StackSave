@@ -1,4 +1,5 @@
 import TextType from "./TextType"
+import CountUp from "./CountUp"
 
 function SavingsBreakdown({ product, bestPaymentOption }) {
   if (!bestPaymentOption) return null;
@@ -6,6 +7,7 @@ function SavingsBreakdown({ product, bestPaymentOption }) {
   const couponCode = product?.couponCode || 'None'
   const couponAmount = product?.couponAmount || 0
   const cashbackValue = bestPaymentOption?.cashbackValue || bestPaymentOption?.totalSavings || 0
+  const creditPointsEarned = bestPaymentOption?.creditPointsEarned || 0
   const rewardPointsValue = bestPaymentOption?.rewardPointsValue || 0
   const effectivePrice = bestPaymentOption?.effectivePrice || 0
 
@@ -52,7 +54,7 @@ function SavingsBreakdown({ product, bestPaymentOption }) {
 
           <div className="screen-box-item">
             <div className="flex items-center justify-between">
-              <dt className="screen-label text-[10px]">Reward Points</dt>
+              <dt className="screen-label text-[10px]">Reward Points ({creditPointsEarned} pts)</dt>
               <dd className="screen-value accent font-semibold">
                 - Rs {rewardPointsValue.toLocaleString()}
               </dd>
@@ -63,7 +65,7 @@ function SavingsBreakdown({ product, bestPaymentOption }) {
             <div className="flex items-center justify-between">
               <dt className="screen-label text-[10px] screen-blink">Effective Price</dt>
               <dd className="screen-value accent text-xl font-semibold screen-blink">
-                Rs {effectivePrice.toLocaleString()}
+                Rs <CountUp to={effectivePrice} from={product?.originalPrice || 0} duration={1.5} className="font-semibold" direction="down" />
               </dd>
             </div>
           </div>

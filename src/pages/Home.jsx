@@ -5,6 +5,7 @@ import ProductCard from "../components/ProductCard"
 import SavingsBreakdown from "../components/SavingsBreakdown"
 import TextType from "../components/TextType"
 import UrlInput from "../components/UrlInput"
+import RewardsSummary from "../components/RewardsSummary"
 
 function Home({ lastAnalysis, onAnalyze, isLoading }) {
   const sortedPaymentOptions = useMemo(
@@ -213,6 +214,8 @@ function Home({ lastAnalysis, onAnalyze, isLoading }) {
       </section>
 
       {lastAnalysis && <BetterDeals deals={lastAnalysis.betterDeals} />}
+
+      <RewardsSummary />
     </div>
   )
 }

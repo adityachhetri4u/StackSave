@@ -7,7 +7,7 @@ import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Dashboard from './pages/Dashboard';
 import CardWallet from './pages/CardWallet';
-import Recommend from './pages/Recommend';
+
 import History from './pages/History';
 import ProductScraper from './pages/ProductScraper';
 
@@ -31,7 +31,6 @@ export default function App() {
             >
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/cards" element={<CardWallet />} />
-              <Route path="/recommend" element={<Recommend />} />
               <Route path="/history" element={<History />} />
               <Route path="/product-scraper" element={<ProductScraper />} />
             </Route>

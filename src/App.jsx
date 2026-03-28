@@ -5,6 +5,8 @@ import { defaultUserProfile } from "./data/mockData"
 import History from "./pages/History"
 import Home from "./pages/Home"
 import Profile from "./pages/Profile"
+import CardWallet from "./pages/CardWallet"
+import RewardComparison from "./components/RewardComparison"
 import { simulateAnalyzeRequest } from "./services/mockApi"
 
 const PROFILE_KEY = "stacksave_user_profile"
@@ -61,6 +63,10 @@ function App() {
   }, [userProfile])
 
   const pageContent = useMemo(() => {
+    if (activeTab === "Cards") {
+      return <CardWallet />
+    }
+
     if (activeTab === "Vault") {
       return (
         <Profile userProfile={userProfile} onUpdateProfile={setUserProfile} />
@@ -69,6 +75,10 @@ function App() {
 
     if (activeTab === "History") {
       return <History history={history} />
+    }
+
+    if (activeTab === "Rewards") {
+      return <RewardComparison />
     }
 
     return (

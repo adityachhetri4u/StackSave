@@ -18,7 +18,6 @@ export default function Layout() {
     const path = location.pathname;
     if (path === '/cards') return 'Vault';
     if (path === '/history') return 'History';
-    if (path === '/recommend') return 'StackMode';
     return 'Terminal';
   };
 

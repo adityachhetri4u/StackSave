@@ -5,7 +5,6 @@ import { LogOut } from 'lucide-react';
 const tabs = [
   { name: "Terminal", path: "/product-scraper" },
   { name: "Vault", path: "/cards" },
-  { name: "StackMode", path: "/recommend" },
   { name: "History", path: "/history" }
 ];
 

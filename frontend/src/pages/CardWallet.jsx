@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import api from '../lib/api';
 import TextType from '../components/TextType';
 import { useAuth } from '../contexts/AuthContext';
+import { getCardBenefits } from '../data/cardBenefits';
 
 function CardWallet() {
   const { user, loading: authLoading } = useAuth();
@@ -183,6 +184,17 @@ function CardWallet() {
               const isFlipped = Boolean(flippedCards[card.id]);
               const bankName = card.bank_name || 'Bank';
               const last4 = card.id ? String(card.id).slice(-4).padStart(4, "0") : "0000";
+              const benefitInfo = getCardBenefits(card.card_name || '', bankName);
+              const benefitMetrics = benefitInfo?.metrics || {
+                returnRate: 'N/A',
+                pointsValue: 'N/A',
+                boostZone: 'Offers',
+                avoidZone: 'Excluded MCC',
+              };
+              const benefitBullets = benefitInfo?.bullets || [
+                'Prioritize categories with top return profile.',
+                'Stack issuer offers and redeem points regularly.',
+              ];
               
               return (
                 <div
@@ -243,12 +255,37 @@ function CardWallet() {
                     {/* Back Face */}
                     <article className="vault-card-face vault-card-back rounded-xl border border-slate-700 p-4 font-mono shadow-2xl">
                       <div className="vault-back-strip" />
-                      <p className="screen-label text-[9px]">Asset Node Metadata</p>
-                      <p className="screen-value mt-3 text-xs font-bold truncate">UID: {card.id}</p>
-                      <p className="screen-label mt-2 text-[9px]">Hash Type: SHA-256</p>
-                      <p className="screen-label mt-1 text-[9px]">Security: Vault Encrypted</p>
-                      <div className="mt-4 pt-3 border-t border-slate-700/50">
-                        <p className="screen-label text-[8px] screen-blink text-center">Interactive layer: tap to reverse</p>
+                      <p className="screen-label text-[9px] tracking-[0.16em]">Smart Usage Notes</p>
+
+                      <div className="mt-2 space-y-1.5 px-0.5">
+                        <div className="flex items-center justify-between gap-2 text-[9px]">
+                          <span className="screen-label text-slate-400">Return</span>
+                          <span className="screen-value text-[12px] font-extrabold text-emerald-300">{benefitMetrics.returnRate}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[9px]">
+                          <span className="screen-label text-slate-400">Point Value</span>
+                          <span className="screen-value text-[11px] font-bold text-cyan-300">{benefitMetrics.pointsValue}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[9px]">
+                          <span className="screen-label text-slate-400">Best Use</span>
+                          <span className="screen-value text-[10px] font-semibold text-slate-200 truncate">{benefitMetrics.boostZone}</span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 text-[9px]">
+                          <span className="screen-label text-slate-400">Avoid</span>
+                          <span className="screen-value text-[10px] font-semibold text-rose-200 truncate">{benefitMetrics.avoidZone}</span>
+                        </div>
+                      </div>
+
+                      <ul className="mt-2 space-y-1">
+                        {benefitBullets.map((line) => (
+                          <li key={line} className="screen-label text-[8px] leading-[1.2] text-slate-300">
+                            - {line}
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div className="mt-3 pt-2 border-t border-slate-700/50">
+                        <p className="screen-label text-[8px] opacity-65">UID: {card.id}</p>
                       </div>
                     </article>
                   </div>

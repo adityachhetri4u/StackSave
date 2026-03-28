@@ -1,4 +1,4 @@
-const tabs = ["Terminal", "Vault", "History"]
+const tabs = ["Terminal", "Cards", "Vault", "Rewards", "History"]
 
 function Navbar({ activeTab, onTabChange }) {
   return (

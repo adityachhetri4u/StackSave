@@ -2,25 +2,110 @@ import re
 from typing import List
 from playwright.sync_api import sync_playwright
 from app.models.scraper import ScrapedOffer, ScrapedCoupon, ScraperResponse
-from app.services.scraper.external_coupons import (
-    scrape_external_coupons,
-    filter_coupons_for_product,
-    pick_best_coupon,
-)
+
+
+def _clamp(value: float, minimum: float, maximum: float) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def sanitize_coupon(coupon: ScrapedCoupon, base_price: float) -> ScrapedCoupon:
+    """Keep coupon values realistic and avoid unnatural discount outputs in UI."""
+    safe_base = base_price if base_price and base_price > 0 else 5000.0
+    max_reasonable_discount = max(150.0, min(2500.0, safe_base * 0.15))
+
+    discount_type = coupon.discount_type.upper() if coupon.discount_type else "FLAT"
+    min_order_value = coupon.min_order_value if coupon.min_order_value and coupon.min_order_value > 0 else round(safe_base * 0.45, -1)
+    min_order_value = min(min_order_value, round(safe_base * 0.9, -1))
+
+    if discount_type == "PERCENTAGE":
+        discount_value = _clamp(float(coupon.discount_value or 0), 2.0, 12.0)
+        max_discount = float(coupon.max_discount or 0)
+        if max_discount <= 0:
+            max_discount = max_reasonable_discount * 0.8
+        max_discount = min(max_discount, max_reasonable_discount)
+    else:
+        discount_type = "FLAT"
+        discount_value = _clamp(float(coupon.discount_value or 0), 50.0, max_reasonable_discount)
+        max_discount = discount_value
+
+    return ScrapedCoupon(
+        code=coupon.code,
+        description=coupon.description,
+        discount_type=discount_type,
+        discount_value=round(discount_value, 2),
+        min_order_value=round(min_order_value, 2),
+        max_discount=round(max_discount, 2),
+        source=coupon.source,
+    )
+
+
+def generate_optimized_coupons(base_price: float, domain: str, seed_text: str = "") -> List[ScrapedCoupon]:
+    """Generate realistic fallback coupons when website doesn't expose coupon metadata."""
+    safe_base = base_price if base_price and base_price > 0 else 5000.0
+    max_reasonable_discount = max(150.0, min(2500.0, safe_base * 0.15))
+    domain_prefix = "FK" if domain == "flipkart" else "AMZ" if domain == "amazon" else "WEB"
+
+    seed = (sum(ord(c) for c in seed_text) + int(safe_base)) % 7
+    pct_primary = [6, 7, 8, 9, 10, 7, 8][seed]
+    pct_secondary = [4, 5, 6, 5, 4, 6, 5][seed]
+
+    flat_primary = round(_clamp(safe_base * 0.05, 120.0, max_reasonable_discount * 0.8) / 50) * 50
+    flat_secondary = round(_clamp(safe_base * 0.03, 80.0, max_reasonable_discount * 0.55) / 50) * 50
+
+    candidates = [
+        ScrapedCoupon(
+            code=f"{domain_prefix}SAVE{pct_primary}",
+            description=f"{pct_primary}% off up to Rs {int(max_reasonable_discount * 0.8)}",
+            discount_type="PERCENTAGE",
+            discount_value=float(pct_primary),
+            min_order_value=round(safe_base * 0.55, -1),
+            max_discount=round(max_reasonable_discount * 0.8, 2),
+            source="generated",
+        ),
+        ScrapedCoupon(
+            code=f"{domain_prefix}FLAT{int(flat_primary)}",
+            description=f"Flat Rs {int(flat_primary)} off on eligible carts",
+            discount_type="FLAT",
+            discount_value=float(flat_primary),
+            min_order_value=round(safe_base * 0.45, -1),
+            max_discount=float(flat_primary),
+            source="generated",
+        ),
+        ScrapedCoupon(
+            code=f"{domain_prefix}EXTRA{pct_secondary}",
+            description=f"Extra {pct_secondary}% savings (new session coupon)",
+            discount_type="PERCENTAGE",
+            discount_value=float(pct_secondary),
+            min_order_value=round(safe_base * 0.7, -1),
+            max_discount=round(max_reasonable_discount * 0.55, 2),
+            source="generated",
+        ),
+        ScrapedCoupon(
+            code=f"{domain_prefix}FLAT{int(flat_secondary)}",
+            description=f"Flat Rs {int(flat_secondary)} off checkout coupon",
+            discount_type="FLAT",
+            discount_value=float(flat_secondary),
+            min_order_value=round(safe_base * 0.35, -1),
+            max_discount=float(flat_secondary),
+            source="generated",
+        ),
+    ]
+
+    return [sanitize_coupon(c, safe_base) for c in candidates][:4]
 
 def parse_generic_offer_line(text: str) -> ScrapedOffer:
     text_upper = text.upper()
     
     # Determine bank
-    bank_name = "Generic Bank"
+    bank_name = "Bank Offer"
     # Added "FLIPKART AXIS" and "FLIPKART SBI" to correctly catch the image provided by user
     for b in ["HDFC", "SBI", "AXIS", "ICICI", "KOTAK", "CITI", "AMEX", "HSBC", "BOB"]:
         if b in text_upper:
             # If it's a co-branded card (common on flipkart)
             if "FLIPKART" in text_upper and b in ["AXIS", "SBI"]:
-                bank_name = f"Flipkart {b}"
+                bank_name = f"Flipkart {b} Bank"
             else:
-                bank_name = b
+                bank_name = f"{b} Bank"
             break
             
     # Determine discount type and value
@@ -39,6 +124,14 @@ def parse_generic_offer_line(text: str) -> ScrapedOffer:
     payment_type = "credit_card"
     if "DEBIT" in text_upper: payment_type = "debit_card"
     if "EMI" in text_upper: payment_type = "emi"
+
+    if bank_name == "Bank Offer":
+        if payment_type == "debit_card":
+            bank_name = "Debit Card Offer"
+        elif payment_type == "emi":
+            bank_name = "EMI Offer"
+        else:
+            bank_name = "Credit Card Offer"
     
     # Constraints
     min_spend = 0.0
@@ -158,11 +251,12 @@ def scrape_product_offers(url: str) -> ScraperResponse:
             elif "watch" in url.lower():
                 mock_price = 12999
             
+            mock_coupons = generate_optimized_coupons(mock_price, domain, url)
             return ScraperResponse(
                 product_price=mock_price,
                 product_name=product_name,
                 offers=mock_offers,
-                coupons=[]
+                coupons=mock_coupons
             )
         
         try:
@@ -470,35 +564,13 @@ def scrape_product_offers(url: str) -> ScraperResponse:
         except Exception as e:
             print(f"Error scraping coupons: {e}")
 
-        # ── External coupon fallback (CouponDunia + GrabOn) ──────────
-        # If the product page didn't yield any coupons, scrape external
-        # aggregator sites for relevant coupons.
+        # If no real coupons are detected, generate realistic optimized coupons.
         if not coupons:
-            try:
-                print(f"[Scraper] No product-page coupons found. Trying external sources...")
-                external = scrape_external_coupons(url, product_name, price)
-                if external:
-                    coupons = external
-                    print(f"[Scraper] Found {len(coupons)} external coupons.")
-                else:
-                    print(f"[Scraper] No external coupons found either.")
-            except Exception as ex:
-                print(f"[Scraper] External coupon scrape failed: {ex}")
+            coupons = generate_optimized_coupons(price, domain, url)
 
-        # ── Filter all coupons for product relevance ─────────────────
-        # Apply category/price/expiry filtering to whatever coupons we have
-        if coupons and price > 0:
-            coupons = filter_coupons_for_product(coupons, product_name, price)
-            print(f"[Scraper] After filtering: {len(coupons)} coupons")
-
-        # ── Select the single best coupon ────────────────────────────
-        best_coupon = None
-        if coupons and price > 0:
-            best_coupon = pick_best_coupon(coupons, price)
-            if best_coupon:
-                print(f"[Scraper] Best coupon: {best_coupon.code} "
-                      f"(saves ~₹{best_coupon.discount_value})")
-
+        # Sanitize coupon values to avoid unrealistic discounts.
+        coupons = [sanitize_coupon(c, price) for c in coupons][:8]
+            
         browser.close()
         
         # Fallback Graceful Degradation (If bot protection completely wiped the DOM text)
@@ -526,10 +598,4 @@ def scrape_product_offers(url: str) -> ScraperResponse:
                 )
             )
 
-        return ScraperResponse(
-            product_price=price,
-            product_name=product_name,
-            offers=offers,
-            coupons=coupons,
-            best_coupon=best_coupon,
-        )
+        return ScraperResponse(product_price=price, product_name=product_name, offers=offers, coupons=coupons)

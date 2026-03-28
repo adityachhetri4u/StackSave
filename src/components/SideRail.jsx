@@ -1,6 +1,8 @@
 const railActions = [
   { tab: "Terminal", label: "T" },
+  { tab: "Cards", label: "C" },
   { tab: "Vault", label: "V" },
+  { tab: "Rewards", label: "R" },
   { tab: "History", label: "H" },
 ]
 

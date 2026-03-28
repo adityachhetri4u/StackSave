@@ -18,14 +18,7 @@ const quickActions = [
     glow: 'shadow-amber-500/20',
     border: 'border-amber-500/30 hover:border-amber-400',
   },
-  {
-    to: '/recommend',
-    label: 'StackMode',
-    description: 'Find the best coupon + card combo',
-    letter: 'S',
-    glow: 'shadow-blue-500/20',
-    border: 'border-blue-500/30 hover:border-blue-400',
-  },
+
   {
     to: '/history',
     label: 'History',

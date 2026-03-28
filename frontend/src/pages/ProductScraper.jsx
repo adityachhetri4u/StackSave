@@ -6,15 +6,103 @@ import ProductCard from "../components/ProductCard"
 import SavingsBreakdown from "../components/SavingsBreakdown"
 import TextType from "../components/TextType"
 import UrlInput from "../components/UrlInput"
+import AnalysisLoader from "../components/AnalysisLoader"
+import { useAuth } from '../contexts/AuthContext';
+
+const BANK_TOKENS = ["HDFC", "SBI", "AXIS", "ICICI", "KOTAK", "AMEX", "HSBC", "CITI", "BOB"];
+const POINT_VALUE_INR = 0.25;
+const ANALYSIS_HISTORY_KEY = 'stacksave_analysis_history_v1';
+const ANALYSIS_HISTORY_LIMIT = 100;
+
+const extractIssuer = (text) => {
+  const upper = String(text || '').toUpperCase();
+  const match = BANK_TOKENS.find((token) => upper.includes(token));
+  return match || null;
+};
+
+const normalizePaymentType = (paymentType) => {
+  const value = String(paymentType || '').toLowerCase();
+  if (value.includes('debit')) return 'debit';
+  if (value.includes('emi')) return 'emi';
+  return 'credit';
+};
+
+const isCardTypeEligible = (cardType, offerPaymentType) => {
+  const cardKind = String(cardType || '').toLowerCase();
+  const offerKind = normalizePaymentType(offerPaymentType);
+
+  if (offerKind === 'debit') return cardKind.includes('debit');
+  if (offerKind === 'credit') return cardKind.includes('credit');
+  if (offerKind === 'emi') return cardKind.includes('credit') || cardKind.includes('emi');
+  return true;
+};
+
+const calculateCouponDiscount = (coupon, basePrice) => {
+  if (!coupon || !basePrice || basePrice <= 0) return 0;
+  if (coupon.min_order_value > 0 && basePrice < coupon.min_order_value) return 0;
+
+  let discount = 0;
+  if (coupon.discount_type === 'FLAT') {
+    discount = coupon.discount_value;
+  } else if (coupon.discount_type === 'PERCENTAGE') {
+    discount = basePrice * (coupon.discount_value / 100);
+  }
+
+  if (coupon.max_discount > 0 && discount > coupon.max_discount) {
+    discount = coupon.max_discount;
+  }
+
+  return Number(discount.toFixed(2));
+};
 
 function ProductScraper() {
+  const { user } = useAuth();
   const [lastAnalysis, setLastAnalysis] = useState(null)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState(null)
   const [coupons, setCoupons] = useState([])
-  const [bestCoupon, setBestCoupon] = useState(null)
   const [appliedCoupon, setAppliedCoupon] = useState(null)
-  const [showAllCoupons, setShowAllCoupons] = useState(false)
+  const [savedCards, setSavedCards] = useState([])
+
+  const appendAnalysisToHistory = (entry) => {
+    try {
+      const existing = JSON.parse(localStorage.getItem(ANALYSIS_HISTORY_KEY) || '[]');
+      const updated = [entry, ...existing].slice(0, ANALYSIS_HISTORY_LIMIT);
+      localStorage.setItem(ANALYSIS_HISTORY_KEY, JSON.stringify(updated));
+    } catch {
+      // Ignore history persistence failures to avoid blocking analysis flow.
+    }
+  };
+
+  const bestCoupon = useMemo(() => {
+    if (!coupons.length || !lastAnalysis) return null;
+    const basePrice = lastAnalysis?._rawPrice || lastAnalysis?.product?.originalPrice || 0;
+
+    return coupons
+      .map((coupon) => ({
+        ...coupon,
+        _estimatedDiscount: calculateCouponDiscount(coupon, basePrice),
+      }))
+      .sort((a, b) => b._estimatedDiscount - a._estimatedDiscount)[0] || null;
+  }, [coupons, lastAnalysis]);
+
+  useEffect(() => {
+    const fetchSavedCards = async () => {
+      if (!user) {
+        setSavedCards([]);
+        return;
+      }
+
+      try {
+        const res = await api.get('/cards');
+        setSavedCards(res.data || []);
+      } catch {
+        setSavedCards([]);
+      }
+    };
+
+    fetchSavedCards();
+  }, [user]);
 
   const sortedPaymentOptions = useMemo(() => {
     if (!lastAnalysis) return [];
@@ -62,18 +150,12 @@ function ProductScraper() {
       
       const price = data.product_price || 0;
       
-      // Store coupons from backend (already filtered & ranked)
-      const rawCoupons = data.coupons || [];
-      const serverBestCoupon = data.best_coupon || null;
-      setCoupons(rawCoupons);
-      setBestCoupon(serverBestCoupon);
+      // Store coupons from backend
+      setCoupons(data.coupons || []);
       setAppliedCoupon(null);
-      setShowAllCoupons(false);
       
-      const rawOffers = data.offers || [];
-      
-      // Transform our backend ScrapedOffer array into the paymentOptions array expected by the UI.
-      const paymentOptions = rawOffers.map((offer, index) => {
+      // Transform scraped offers into card-eligible options.
+      const paymentOptions = data.offers.flatMap((offer, index) => {
         let discount = 0;
         if (offer.discount_type === 'FLAT') {
           discount = offer.discount_value;
@@ -84,19 +166,82 @@ function ProductScraper() {
         if (offer.max_discount > 0 && discount > offer.max_discount) discount = offer.max_discount;
         if (offer.min_spend > 0 && price < offer.min_spend) discount = 0; // Ineligible
 
-        return {
-          id: `opt-${index}`,
-          name: offer.bank_name,
-          effectivePrice: price - discount,
-          totalSavings: discount,
-          type: offer.payment_type || 'Credit Card',
-          cashbackPercent: offer.discount_type !== 'FLAT' ? offer.discount_value : 0,
-          rewardPercent: 0,
-          tags: [offer.discount_type, offer.bank_name],
-          details: { features: [offer.raw_text, `Discount: ${offer.discount_type}`, `Min Spend: ₹${offer.min_spend}`] },
-          cashbackValue: discount,
-          rewardPointsValue: 0
-        }
+        const offerIssuer = extractIssuer(`${offer.bank_name} ${offer.raw_text}`);
+        const isIssuerSpecificOffer = Boolean(offerIssuer);
+
+        const eligibleCards = (savedCards || []).filter((card) => {
+          const cardIssuer = extractIssuer(`${card.bank_name} ${card.card_name}`);
+          const bankEligible = offerIssuer ? cardIssuer === offerIssuer : true;
+          const typeEligible = isCardTypeEligible(card.card_type, offer.payment_type);
+          return bankEligible && typeEligible;
+        });
+
+        const cardsToEvaluate = eligibleCards.length > 0
+          ? eligibleCards
+          : [{
+              id: `offer-${index}`,
+              card_name: `${offer.bank_name} ${String(offer.payment_type || 'card').replace('_', ' ')}`,
+              bank_name: offer.bank_name,
+              card_type: offer.payment_type || 'credit_card',
+              cashback_rate: 0,
+              max_cap: 0,
+            }];
+
+        return cardsToEvaluate.map((card, cardIdx) => {
+          const hasSavedCardMatch = eligibleCards.length > 0;
+          const offerDiscountApplied = isIssuerSpecificOffer && !hasSavedCardMatch ? 0 : discount;
+          const postOfferAmount = Math.max(price - offerDiscountApplied, 0);
+
+          const cardCashbackRate = Number(card.cashback_rate || 0);
+          let cardCashbackValue = (postOfferAmount * cardCashbackRate) / 100;
+          if (Number(card.max_cap || 0) > 0) {
+            cardCashbackValue = Math.min(cardCashbackValue, Number(card.max_cap));
+          }
+
+          const cardSpendType = normalizePaymentType(card.card_type);
+          const pointsPer100 = cardSpendType === 'credit' ? 5 : cardSpendType === 'debit' ? 1 : 0;
+          const creditPointsEarned = hasSavedCardMatch ? Math.floor(postOfferAmount / 100) * pointsPer100 : 0;
+          const rewardPointsValue = Number((creditPointsEarned * POINT_VALUE_INR).toFixed(2));
+
+          const finalEffectivePrice = Math.max(
+            0,
+            price - offerDiscountApplied - cardCashbackValue - rewardPointsValue,
+          );
+          const finalTotalSavings = Number((price - finalEffectivePrice).toFixed(2));
+
+          const cashbackPercent =
+            price > 0 ? Number((((offerDiscountApplied + cardCashbackValue) / price) * 100).toFixed(2)) : 0;
+          const rewardPercent =
+            price > 0 ? Number(((rewardPointsValue / price) * 100).toFixed(2)) : 0;
+
+          return {
+            id: `opt-${index}-${card.id || cardIdx}`,
+            name: card.card_name || offer.bank_name,
+            effectivePrice: finalEffectivePrice,
+            totalSavings: finalTotalSavings,
+            type: card.card_type || offer.payment_type || 'Credit Card',
+            cashbackPercent,
+            rewardPercent,
+            tags: [
+              offer.discount_type,
+              `Issuer: ${offer.bank_name}`,
+              hasSavedCardMatch ? 'Eligible Card' : 'No Eligible Saved Card',
+            ],
+            details: {
+              features: [
+                offer.raw_text,
+                `Offer Discount: ₹${Number(offerDiscountApplied).toFixed(2)}`,
+                `Card Cashback: ₹${Number(cardCashbackValue).toFixed(2)}`,
+                `Credit Points: ${creditPointsEarned}`,
+                `Point Value: ₹${POINT_VALUE_INR}/point`,
+              ],
+            },
+            cashbackValue: Number((offerDiscountApplied + cardCashbackValue).toFixed(2)),
+            rewardPointsValue,
+            creditPointsEarned,
+            pointValueInr: POINT_VALUE_INR,
+          };
+        });
       });
 
       // Filter to only include options that actually gave a discount (if any)
@@ -121,8 +266,23 @@ function ProductScraper() {
         bestPaymentOption: best,
         betterDeals: [],
         _rawPrice: price,
-        _rawOffers: rawOffers
+        _rawOffers: data.offers
       };
+
+      if (best) {
+        appendAnalysisToHistory({
+          id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          created_at: new Date().toISOString(),
+          merchant_name: analysis.product.platform,
+          product_name: analysis.product.name,
+          cart_value: analysis.product.originalPrice,
+          total_savings: best.totalSavings,
+          credit_points: Number(best.creditPointsEarned || 0),
+          effective_price: best.effectivePrice,
+          selected_option: best.name,
+          coupon_code: analysis.product.couponCode || 'None',
+        });
+      }
       
       setLastAnalysis(analysis);
     } catch (err) {
@@ -188,7 +348,7 @@ function ProductScraper() {
             </div>
           )}
 
-          {!lastAnalysis && !error && (
+          {!lastAnalysis && !error && !isLoading && (
             <section className="machine-panel rounded-2xl border border-dashed border-slate-500/30 p-8 text-center">
               <h3 className="font-display text-xl font-semibold uppercase tracking-wide text-slate-100">
                 Insert URL and Run Analysis
@@ -196,6 +356,12 @@ function ProductScraper() {
               <p className="mt-2 text-sm text-slate-400">
                 StackSave will launch a headless browser, extract live base prices and bank offers natively.
               </p>
+            </section>
+          )}
+
+          {isLoading && (
+            <section className="machine-panel rounded-2xl border border-dashed border-slate-500/30 p-8 flex justify-center">
+              <AnalysisLoader />
             </section>
           )}
 
@@ -211,6 +377,11 @@ function ProductScraper() {
                   <h3 className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-500">
                     Select Terminal Card
                   </h3>
+                  {bestPaymentOption && (
+                    <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">
+                      Points to INR: 1 point = ₹{bestPaymentOption.pointValueInr || POINT_VALUE_INR}
+                    </p>
+                  )}
                   {bestPaymentOption && (
                     <PaymentOptionCard option={bestPaymentOption} isRecommended />
                   )}
@@ -316,206 +487,148 @@ function ProductScraper() {
         </div>
       </section>
 
-      {/* Best Coupon Section */}
-      {lastAnalysis && bestCoupon && (() => {
-        const basePrice = lastAnalysis._rawPrice || lastAnalysis.product.originalPrice;
-        const isApplied = appliedCoupon?.code === bestCoupon.code;
-        // Calculate effective savings
-        let effectiveSavings = 0;
-        if (bestCoupon.discount_type === 'FLAT') {
-          effectiveSavings = bestCoupon.discount_value;
-        } else {
-          effectiveSavings = basePrice * (bestCoupon.discount_value / 100);
-        }
-        if (bestCoupon.max_discount > 0 && effectiveSavings > bestCoupon.max_discount) {
-          effectiveSavings = bestCoupon.max_discount;
-        }
-        effectiveSavings = Math.min(effectiveSavings, basePrice);
-
-        return (
-          <section className="rounded-2xl border border-slate-700 bg-slate-950/80 p-5 shadow-2xl">
-            <div className="flex items-center justify-between gap-3 mb-4">
-              <div>
-                <h3 className="font-display text-lg font-semibold uppercase tracking-[0.14em] text-slate-200">
-                  Best Coupon Match
-                </h3>
-                <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-mono">
-                  Filtered by product category, price eligibility &amp; validity
-                </p>
-              </div>
-              <span className="rounded-full border border-emerald-500/40 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase tracking-[0.16em] text-emerald-300">
-                ★ Top Pick
-              </span>
+      {/* Coupons Section */}
+      {lastAnalysis && coupons.length > 0 && (
+        <section className="rounded-2xl border border-slate-700 bg-slate-950/80 p-5 shadow-2xl">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <div>
+              <h3 className="font-display text-lg font-semibold uppercase tracking-[0.14em] text-slate-200">
+                Available Coupons
+              </h3>
+              <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-mono">
+                Extracted from sequence scan
+              </p>
             </div>
+            <span className="rounded-full border border-slate-500/40 bg-slate-500/10 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-300">
+              {coupons.length} detected
+            </span>
+          </div>
 
-            {/* Best coupon — prominent card */}
-            <div
-              className={`rounded-xl border-2 p-5 transition-all cursor-pointer ${
-                isApplied
-                  ? 'border-emerald-400 bg-emerald-500/10 shadow-[0_0_30px_rgba(52,211,153,0.15)]'
-                  : 'border-slate-600 bg-gradient-to-br from-slate-900 to-slate-800 hover:border-emerald-500/60'
-              }`}
-              onClick={() => {
-                if (isApplied) {
-                  setAppliedCoupon(null);
-                  setLastAnalysis(prev => ({
-                    ...prev,
-                    product: { ...prev.product, couponCode: 'None', couponAmount: 0 }
-                  }));
-                } else {
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {coupons.map((coupon, idx) => {
+              const isApplied = appliedCoupon?.code === coupon.code;
+              const isBestCoupon = bestCoupon?.code === coupon.code;
+              const estimatedDiscount = calculateCouponDiscount(
+                coupon,
+                lastAnalysis?._rawPrice || lastAnalysis?.product?.originalPrice || 0,
+              );
+              return (
+                <div
+                  key={idx}
+                  className={`rounded-xl border p-4 transition-all cursor-pointer ${
+                    isApplied
+                      ? 'border-slate-300 bg-slate-500/10 shadow-[0_0_20px_rgba(148,163,184,0.15)]'
+                      : isBestCoupon
+                        ? 'border-emerald-400/60 bg-emerald-900/10 hover:border-emerald-300'
+                        : 'border-slate-700 bg-slate-900 hover:border-slate-500'
+                  }`}
+                  onClick={() => {
+                    if (isApplied) {
+                      setAppliedCoupon(null);
+                      setLastAnalysis(prev => ({
+                        ...prev,
+                        product: { ...prev.product, couponCode: 'None', couponAmount: 0 }
+                      }));
+                    } else {
+                      setAppliedCoupon(coupon);
+                      const basePrice = lastAnalysis._rawPrice || lastAnalysis.product.originalPrice;
+                      const couponDiscount = calculateCouponDiscount(coupon, basePrice);
+                      setLastAnalysis(prev => ({
+                        ...prev,
+                        product: {
+                          ...prev.product,
+                          couponCode: coupon.code,
+                          couponAmount: couponDiscount
+                        }
+                      }));
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-mono text-sm font-bold text-slate-200 tracking-wider">
+                      {coupon.code}
+                    </span>
+                    <div className="flex items-center gap-1.5">
+                      {isBestCoupon && (
+                        <span className="rounded-full border border-emerald-400/60 bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold uppercase text-emerald-300">
+                          Best
+                        </span>
+                      )}
+                      {isApplied ? (
+                        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-950">
+                          Applied ✓
+                        </span>
+                      ) : (
+                        <span className="rounded-full border border-slate-600 px-2 py-0.5 text-[10px] font-semibold uppercase text-slate-500">
+                          Apply
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 line-clamp-2 mb-3 leading-relaxed">{coupon.description}</p>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-bold text-slate-200 uppercase tracking-wider">
+                      {coupon.discount_type === 'FLAT' ? `₹${coupon.discount_value} OFF` : `${coupon.discount_value}% OFF`}
+                    </span>
+                    {coupon.min_order_value > 0 && (
+                      <span className="text-[9px] text-slate-500 font-mono">MIN ₹{coupon.min_order_value}</span>
+                    )}
+                  </div>
+                  <p className="mt-2 text-[10px] uppercase tracking-[0.12em] text-emerald-300 font-mono">
+                    Estimated Savings: ₹{estimatedDiscount.toLocaleString()}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          {bestCoupon && !appliedCoupon && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-emerald-500/40 bg-emerald-900/10 p-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-300">Recommended Coupon</p>
+                <p className="font-mono text-lg font-bold text-slate-200">{bestCoupon.code}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  const basePrice = lastAnalysis._rawPrice || lastAnalysis.product.originalPrice;
+                  const couponDiscount = calculateCouponDiscount(bestCoupon, basePrice);
                   setAppliedCoupon(bestCoupon);
                   setLastAnalysis(prev => ({
                     ...prev,
                     product: {
                       ...prev.product,
                       couponCode: bestCoupon.code,
-                      couponAmount: effectiveSavings
-                    }
+                      couponAmount: couponDiscount,
+                    },
                   }));
-                }
-              }}
-            >
-              <div className="flex items-center justify-between mb-3">
-                <div className="flex items-center gap-3">
-                  <span className="font-mono text-lg font-bold text-slate-100 tracking-wider">
-                    {bestCoupon.code}
-                  </span>
-                  {bestCoupon.source && bestCoupon.source !== 'product_page' && (
-                    <span className={`rounded px-1.5 py-0.5 text-[8px] font-bold uppercase tracking-wider ${
-                      bestCoupon.source === 'coupondunia'
-                        ? 'bg-emerald-900/60 text-emerald-300 border border-emerald-700/50'
-                        : bestCoupon.source === 'grabon'
-                          ? 'bg-amber-900/60 text-amber-300 border border-amber-700/50'
-                          : 'bg-slate-800 text-slate-400 border border-slate-700'
-                    }`}>
-                      {bestCoupon.source === 'coupondunia' ? 'CouponDunia' : bestCoupon.source === 'grabon' ? 'GrabOn' : bestCoupon.source}
-                    </span>
-                  )}
-                </div>
-                {isApplied ? (
-                  <span className="rounded-full bg-emerald-400 px-3 py-1 text-[10px] font-bold uppercase text-slate-950">
-                    Applied ✓
-                  </span>
-                ) : (
-                  <span className="rounded-full border border-emerald-500/60 bg-emerald-500/10 px-3 py-1 text-[10px] font-bold uppercase text-emerald-300 hover:bg-emerald-500/20 transition">
-                    Apply Coupon
-                  </span>
-                )}
+                }}
+                className="rounded-lg border border-emerald-400/60 bg-emerald-500/15 px-4 py-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-emerald-200 hover:bg-emerald-500/25"
+              >
+                Apply Best
+              </button>
+            </div>
+          )}
+
+          {appliedCoupon && (
+            <div className="mt-4 flex items-center justify-between rounded-xl border border-slate-500/30 bg-slate-500/5 p-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.15em] text-slate-400">Coupon Validated</p>
+                <p className="font-mono text-lg font-bold text-slate-200">{appliedCoupon.code}</p>
               </div>
-
-              <p className="text-sm text-slate-400 mb-4 leading-relaxed">{bestCoupon.description}</p>
-
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-bold text-emerald-300 uppercase tracking-wider">
-                    {bestCoupon.discount_type === 'FLAT' ? `₹${bestCoupon.discount_value} OFF` : `${bestCoupon.discount_value}% OFF`}
-                  </span>
-                  {bestCoupon.min_order_value > 0 && (
-                    <span className="text-[10px] text-slate-500 font-mono">MIN ₹{bestCoupon.min_order_value.toLocaleString()}</span>
-                  )}
-                </div>
-                <div className="text-right">
-                  <p className="text-[9px] uppercase tracking-[0.15em] text-slate-500">You Save</p>
-                  <p className="text-lg font-bold text-emerald-300">₹{Math.round(effectiveSavings).toLocaleString()}</p>
-                </div>
+              <div className="text-right">
+                <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500">Node Savings</p>
+                <p className="text-xl font-bold text-slate-200">₹{(lastAnalysis.product.couponAmount || 0).toLocaleString()}</p>
               </div>
             </div>
+          )}
+        </section>
+      )}
 
-            {/* Applied coupon confirmation */}
-            {isApplied && (
-              <div className="mt-4 flex items-center justify-between rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-4">
-                <div>
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-emerald-400">Coupon Active</p>
-                  <p className="font-mono text-lg font-bold text-slate-200">{appliedCoupon.code}</p>
-                </div>
-                <div className="text-right">
-                  <p className="text-[10px] uppercase tracking-[0.15em] text-slate-500">Savings Applied</p>
-                  <p className="text-xl font-bold text-emerald-300">₹{Math.round(lastAnalysis.product.couponAmount || 0).toLocaleString()}</p>
-                </div>
-              </div>
-            )}
-
-            {/* Other coupons toggle */}
-            {coupons.length > 1 && (
-              <div className="mt-4">
-                <button
-                  type="button"
-                  onClick={() => setShowAllCoupons(prev => !prev)}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-900/60 py-2.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-400 transition hover:border-slate-500 hover:text-slate-300"
-                >
-                  {showAllCoupons ? 'Hide Other Coupons' : `View ${coupons.length - 1} Other Filtered Coupon${coupons.length - 1 > 1 ? 's' : ''}`}
-                </button>
-
-                {showAllCoupons && (
-                  <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    {coupons.filter(c => c.code !== bestCoupon.code).map((coupon, idx) => {
-                      const isOtherApplied = appliedCoupon?.code === coupon.code;
-                      return (
-                        <div
-                          key={idx}
-                          className={`rounded-lg border p-3 transition-all cursor-pointer text-sm ${
-                            isOtherApplied
-                              ? 'border-slate-300 bg-slate-500/10'
-                              : 'border-slate-800 bg-slate-900/50 hover:border-slate-600'
-                          }`}
-                          onClick={() => {
-                            if (isOtherApplied) {
-                              setAppliedCoupon(null);
-                              setLastAnalysis(prev => ({
-                                ...prev,
-                                product: { ...prev.product, couponCode: 'None', couponAmount: 0 }
-                              }));
-                            } else {
-                              let disc = 0;
-                              if (coupon.discount_type === 'FLAT') disc = coupon.discount_value;
-                              else disc = basePrice * (coupon.discount_value / 100);
-                              if (coupon.max_discount > 0 && disc > coupon.max_discount) disc = coupon.max_discount;
-                              setAppliedCoupon(coupon);
-                              setLastAnalysis(prev => ({
-                                ...prev,
-                                product: { ...prev.product, couponCode: coupon.code, couponAmount: disc }
-                              }));
-                            }
-                          }}
-                        >
-                          <div className="flex items-center justify-between mb-1">
-                            <span className="font-mono text-xs font-bold text-slate-300 tracking-wider">{coupon.code}</span>
-                            <div className="flex items-center gap-1.5">
-                              {coupon.source && coupon.source !== 'product_page' && (
-                                <span className={`rounded px-1 py-0.5 text-[7px] font-bold uppercase ${
-                                  coupon.source === 'coupondunia'
-                                    ? 'bg-emerald-900/60 text-emerald-400'
-                                    : 'bg-amber-900/60 text-amber-400'
-                                }`}>
-                                  {coupon.source === 'coupondunia' ? 'CD' : 'GO'}
-                                </span>
-                              )}
-                              {isOtherApplied ? (
-                                <span className="text-[8px] font-bold text-slate-100">✓</span>
-                              ) : (
-                                <span className="text-[8px] text-slate-600">Apply</span>
-                              )}
-                            </div>
-                          </div>
-                          <p className="text-[10px] text-slate-500 line-clamp-1">{coupon.description}</p>
-                          <p className="text-[10px] font-bold text-slate-400 mt-1">
-                            {coupon.discount_type === 'FLAT' ? `₹${coupon.discount_value} OFF` : `${coupon.discount_value}% OFF`}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
-          </section>
-        );
-      })()}
-
-      {lastAnalysis && !bestCoupon && coupons.length === 0 && (
+      {lastAnalysis && coupons.length === 0 && (
         <section className="rounded-2xl border border-dashed border-slate-700 bg-slate-950/80 p-5 text-center">
           <p className="text-[10px] uppercase tracking-[0.18em] text-slate-500 font-mono">
-            No matching coupons found for this product
+            No external coupons detected in product sequence
           </p>
         </section>
       )}
